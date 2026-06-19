@@ -1,0 +1,77 @@
+---
+name: verify-gated-review
+description: A strict post-change validation workflow that enforces repeated re-verification after every modification step, so correctness, security, and quality are never assumed. Use this skill any time code changes have just been completed and need to be validated before the task is considered done — after a bug fix, a feature, a refactor, or an applied review suggestion. Also trigger on requests like "wrap this up", "make sure this is solid", "do a final pass", "is this safe to ship", or "review what we just changed". Runs verify, security-review, code-review, and simplify in strict sequence, immediately re-running verify after any fix so that no later step's changes go unchecked.
+---
+
+# Verify-Gated Review
+
+## Why this exists
+
+A change that "looks right" can still break behavior, introduce a security gap, or leave the codebase messier than before. The risk isn't just in the original change — it's in every fix applied *during* review. A security fix can break a test. A code-review refactor can reintroduce a bug. A simplification can quietly change behavior. Treat every single modification, no matter how small or how confident you are it's safe, as something that needs to be re-proven correct. Never assume a verification result from before the most recent change still holds.
+
+## When to run this
+
+After any code changes are complete, before reporting the task as finished. Don't wait to be asked to "verify" explicitly — if you just edited code, this workflow is how you confirm it's actually done.
+
+## Resolving the commands
+
+This workflow calls four named steps: `verify`, `security-review`, `code-review`, `simplify`. Resolve each one to whatever already exists in this project/environment, checked in this order:
+1. An existing Claude Code slash command (e.g. `.claude/commands/`) with that name or an obvious equivalent.
+2. A project script (e.g. `package.json` scripts, `Makefile` targets, a CI config) named or clearly intended for that purpose.
+3. If genuinely nothing exists for a step, perform it directly and say so: for `verify`, run the project's tests, linter, and type-checker; for `security-review`, inspect the diff for injection, auth, secrets-handling, and input-validation issues; for `code-review`, assess the diff for correctness, readability, and design; for `simplify`, look for redundant or overcomplicated code introduced by the change. Don't silently skip a step just because no dedicated command exists.
+
+## Workflow — execute strictly and sequentially
+
+Do not reorder, parallelize, or skip ahead. Each phase only starts once the previous one is fully resolved.
+
+### 1. Initial Verify
+- Run `verify` to establish a working baseline before reviewing anything.
+- If it fails, fix the issues first. Do not proceed to phase 2 on a failing baseline — there's no point reviewing code that doesn't already work.
+- Re-run `verify` after any fix until it passes.
+
+### 2. Security Review Phase
+- Run `security-review`.
+- If it surfaces issues, fix them.
+- If that fix touched any code, immediately re-run `verify`. Do not move on until `verify` passes again.
+- If `security-review` found nothing, say so explicitly and continue.
+
+### 3. Code Review Phase
+- Run `code-review`.
+- Apply any improvements or refactoring it calls for.
+- If that touched any code, immediately re-run `verify`. Do not move on until `verify` passes again.
+
+### 4. Simplification Phase
+- Run `simplify`.
+- Apply a simplification only if you're confident it preserves existing behavior. When in doubt, leave it — simplification is the lowest-priority phase and never worth a behavior change.
+- If that touched any code, immediately re-run `verify`. Do not move on until `verify` passes again.
+
+### 5. Final Verification (mandatory gate)
+- Run `verify` one more time, even if phases 2–4 made no changes at all. This is non-negotiable — it's the gate the whole task passes or fails on.
+- The task is only complete if this final run passes.
+
+## Strict rules
+
+- Never skip verification after a code modification, no matter how trivial it seems.
+- Treat every modification as potentially behavior-breaking, including your own "obviously safe" fixes.
+- Fail fast: if `verify` fails at any point, stop and fix it before doing anything else.
+- A passing verification result is only valid for the code as it existed at that moment — any edit after it invalidates it.
+- When phases conflict, prioritize correctness and security over simplification. Never apply a simplification that risks either.
+
+## Output format
+
+Report progress phase-by-phase as you go, not all at once at the end. For each phase, state:
+- Which phase is running.
+- Whether changes were made (yes/no, and a one-line description if yes).
+- The verification result, whenever `verify` was run in that phase (pass/fail).
+
+Close with a single final status line:
+
+```
+FINAL STATUS: PASS
+```
+or
+```
+FINAL STATUS: FAIL — <short reason>
+```
+
+Only report `PASS` if the mandatory final verification in phase 5 actually passed.
